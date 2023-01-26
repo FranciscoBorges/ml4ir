@@ -1,0 +1,41 @@
+# https://confluence.internal.salesforce.com/display/public/ZEN/SFCI+Managed+V2+Pipelines
+global:
+  email-reply-to: fborges@salesforce.com
+  production-branches:
+    - master
+stages:
+  build:
+    - step:
+        name: mvn-build-install
+        image: dva-registry.internal.salesforce.com/sfci/docker-images/sfdc_centos7_java_build:latest
+        commands:
+          - rm -rf /root/.m2/repository/
+          - ln -s /cix/tmp/.strata/.m2/repository /root/.m2/repository
+          - cd jvm
+          - mvn --version
+          - bash ../scripts/determine-next-version.bash ml4ir
+          # set pom version to the latest released-version
+          # increase the version incrementally
+          - mvn build-helper:parse-version versions:set -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.nextIncrementalVersion}
+          - mvn install
+    - step:
+        name: git-tags
+        image: dva-registry.internal.salesforce.com/sfci/docker-images/sfdc_centos7_java_build:latest
+        when:
+          - operator: EQ
+            value: $$IS_PRODUCTION_BRANCH
+            other: 'true'
+        commands:
+          - git config user.email "sfci-team@salesforce.com"
+          - git config user.name "SFCI Team"
+          - pwd
+          # Sets a tag like "ml4ir-5.0.7". The command does not attempt to push the tag.
+          # Notice the '|| true' at the end!
+          - mvn build-helper:parse-version scm:tag -Dtag=ml4ir-\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.incrementalVersion} -DpushChanges=false || true
+  publish:
+    - publish-jar:
+        artifacts:
+          - groupId: "com.salesforce.services.search"
+            artifactId: "ml4ir-parent"
+          - groupId: "com.salesforce.services.search"
+            artifactId: "ml4ir-inference"
